@@ -63,6 +63,10 @@ model User {
   achievementProgress  AchievementProgress[]
   documents            Document[]
   tier                 String                @default("INITIATE")
+  // NOVYRA AI Engine relations
+  conceptAttempts      ConceptAttempt[]
+  masteryRecords       MasteryRecord[]
+  rubricEvaluations    RubricEvaluation[]
 
   @@index([createdAt])
   @@map("users")
@@ -512,3 +516,93 @@ enum CommunityRole {
   MODERATOR
   MEMBER
 }
+
+// ============================================================
+// NOVYRA AI Engine — Knowledge Graph, Mastery & Evaluation
+// ============================================================
+
+model Concept {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  domain      String?
+  difficulty  Int      @default(1)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  prerequisites ConceptPrerequisite[] @relation("ConceptPrerequisites")
+  dependents    ConceptPrerequisite[] @relation("DependentConcepts")
+  masteryRecords MasteryRecord[]
+  attempts      ConceptAttempt[]
+
+  @@map("concepts")
+}
+
+model ConceptPrerequisite {
+  id             String  @id @default(cuid())
+  conceptId      String
+  prerequisiteId String
+  concept        Concept @relation("ConceptPrerequisites", fields: [conceptId], references: [id], onDelete: Cascade)
+  prerequisite   Concept @relation("DependentConcepts",   fields: [prerequisiteId], references: [id], onDelete: Cascade)
+
+  @@unique([conceptId, prerequisiteId])
+  @@map("concept_prerequisites")
+}
+
+model ConceptAttempt {
+  id                 String   @id @default(cuid())
+  userId             String
+  conceptId          String
+  isCorrect          Boolean
+  timeTakenSeconds   Int?
+  hintsUsed          Int      @default(0)
+  masteryScoreBefore Float    @default(0)
+  masteryScoreAfter  Float    @default(0)
+  createdAt          DateTime @default(now())
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concept Concept @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+
+  @@index([userId, conceptId])
+  @@map("concept_attempts")
+}
+
+model MasteryRecord {
+  id                String   @id @default(cuid())
+  userId            String
+  conceptId         String
+  totalAttempts     Int      @default(0)
+  correctAttempts   Int      @default(0)
+  masteryScore      Float    @default(0)
+  confidenceWeight  Float    @default(1)
+  lastSeen          DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concept Concept @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conceptId])
+  @@index([userId])
+  @@map("mastery_records")
+}
+
+model RubricEvaluation {
+  id              String   @id @default(cuid())
+  userId          String
+  concept         String?
+  submission      String   @db.Text
+  rubricJson      Json
+  criterionScores Json
+  weightedTotal   Float
+  gradeLevel      String
+  overallFeedback String   @db.Text
+  improvementPlan Json
+  createdAt       DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("rubric_evaluations")
+}
+

@@ -1,73 +1,82 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
+"""
+NOVYRA — Barebones Gemini LLM client (no LangChain)
+"""
+import json
+import logging
 from typing import Optional
-import os
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-from app.config import settings
-from app.utils.logger import setup_logger
+import google.generativeai as genai
 
-logger = setup_logger(__name__)
+from app.core.config import settings
 
-_llm_instance: Optional[ChatGoogleGenerativeAI] = None
+logger = logging.getLogger(__name__)
 
-
-def get_llm() -> ChatGoogleGenerativeAI:
-    """
-    Get LLM instance (Gemini client)
-    """
-    global _llm_instance
-
-    if _llm_instance is None:
-        logger.info(f"Initializing Gemini LLM: {settings.LLM_MODEL}")
-        
-        api_key = settings.GOOGLE_API_KEY
-        if not api_key:
-            raise ValueError("GOOGLE_API_KEY is missing in the configuration")
-
-        _llm_instance = ChatGoogleGenerativeAI(
-            model=settings.LLM_MODEL,
-            google_api_key=api_key,
-            temperature=settings.LLM_TEMPERATURE,
-            convert_system_message_to_human=True
-        )
-        logger.info("Gemini LLM initialized successfully")
-
-    return _llm_instance
+# Configure SDK once at import time
+if settings.GOOGLE_API_KEY:
+    genai.configure(api_key=settings.GOOGLE_API_KEY)
+    logger.info("Gemini SDK configured with model: %s", settings.LLM_MODEL)
+else:
+    logger.warning("GOOGLE_API_KEY not set — Gemini calls will fail")
 
 
-async def generate_response(
+def _get_model(temperature: float | None = None) -> genai.GenerativeModel:
+    """Return a configured GenerativeModel instance."""
+    gen_config = genai.GenerationConfig(
+        temperature=temperature if temperature is not None else settings.LLM_TEMPERATURE,
+        max_output_tokens=4096,
+    )
+    return genai.GenerativeModel(
+        model_name=settings.LLM_MODEL,
+        generation_config=gen_config,
+    )
+
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def generate_text(
     prompt: str,
     system_prompt: str = "You are a helpful AI tutor.",
-    max_tokens: int = None,
-    temperature: float = None
+    temperature: float | None = None,
 ) -> str:
-    llm = get_llm()
+    """
+    Single-turn text generation — returns plain string.
+    System prompt is prepended as context since Gemini uses user-only chat turns.
+    """
+    model = _get_model(temperature)
+    full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
+    response = await model.generate_content_async(full_prompt)
+    return response.text.strip()
 
-    # Build messages list
-    messages = [
-        ("system", system_prompt),
-        ("human", prompt)
-    ]
+
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
+async def generate_json(
+    prompt: str,
+    system_prompt: str = "You are a helpful AI tutor. Respond ONLY with valid JSON.",
+    temperature: float | None = None,
+) -> dict:
+    """
+    Generate structured JSON output.
+    Retries up to 3 times if output is not valid JSON.
+    """
+    model = _get_model(temperature)
+    full_prompt = (
+        f"{system_prompt}\n\n"
+        f"CRITICAL: Your entire response must be a single valid JSON object.\n"
+        f"Do NOT include markdown code fences, just raw JSON.\n\n"
+        f"{prompt}"
+    )
+    response = await model.generate_content_async(full_prompt)
+    text = response.text.strip()
+
+    # Strip code fences if model added them anyway
+    if text.startswith("```"):
+        text = text.split("```")[1]
+        if text.startswith("json"):
+            text = text[4:]
+        text = text.strip()
 
     try:
-        output = await llm.ainvoke(messages)
-        return output.content.strip()
-
-    except Exception as e:
-        logger.error(f"Gemini API error: {e}")
-        raise Exception(f"Failed to generate response: {str(e)}")
-
-
-async def generate_with_context(
-    question: str,
-    context: str,
-    system_prompt: str = "You are a helpful AI tutor."
-) -> str:
-    """Generate response with context (for RAG)"""
-    prompt = f"""Context information:
-{context}
-
-Question: {question}
-
-Answer the question based on the context provided above. If the context doesn't contain enough information, provide the best answer you can and mention that additional context would be helpful."""
-    
-    return await generate_response(prompt, system_prompt)
+        return json.loads(text)
+    except json.JSONDecodeError as exc:
+        logger.error("JSON parse failed: %s | raw: %s", exc, text[:300])
+        raise ValueError(f"LLM did not return valid JSON: {exc}") from exc
