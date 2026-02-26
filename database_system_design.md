@@ -1,99 +1,143 @@
-# Database Configuration and System Design
+# Database System Design — NOVYRA
 
-## Database Configuration
+This document describes the production-grade database architecture for NOVYRA: a hybrid system using PostgreSQL (Prisma) for relational, OLTP data and Neo4j for the knowledge graph core.
 
-### Database Technology
-- **Prisma ORM**: Used for database management and migrations.
-- **Relational Database**: Likely PostgreSQL (based on Prisma's common usage).
+## Goals
 
-### Prisma Configuration
-- **Schema File**: Located at `apps/app/prisma/schema.prisma`.
-- **Migrations**: Managed under `apps/app/prisma/migrations/`.
-- **Seed Data**: Seed script available at `apps/app/prisma/seed.ts`.
+- Strong data integrity for users, community content, and audit logs
+- Fast graph traversals for prerequisites, recommendations, and mastery
+- Deterministic, reproducible evaluation & mastery updates
+- Operational readiness: backups, monitoring, connection pooling, and scaling
 
-### Key Models
-The Prisma schema defines the following key models:
-1. **User**: Represents platform users with fields for authentication, profile, and gamification stats.
-2. **Community**: Represents subject-specific learning groups.
-3. **Post**: Represents questions or discussions initiated by users.
-4. **Answer**: Represents responses to posts.
-5. **Mentorship**: Tracks mentor-mentee relationships.
-6. **Achievements**: Tracks user milestones and badges.
+---
 
-### Environment Variables
-Database connection details are stored in environment variables, typically in a `.env` file:
-```env
-DATABASE_URL=postgresql://<username>:<password>@<host>:<port>/<database>
+## Logical Components
+
+- **Relational Store (Postgres + Prisma)** — primary source of truth for users, posts, attempts, mastery records, rubric evaluations, gamification ledger, and audit logs. Prisma client used by application services.
+- **Knowledge Graph (Neo4j)** — stores `Concept` nodes, `PREREQUISITE_OF`, `MASTERED_BY`, and `PART_OF` relationships for efficient traversal and curriculum planning.
+- **Event / Audit Logs** — immutable append-only logs (Postgres table + optional write to object storage) capturing attempts, evaluation results, and model prompts/responses for traceability.
+- **Vector Store** (optional) — Chroma or Pinecone for retrieval if RAG/semantic search is needed in future.
+
+---
+
+## Prisma Schema (relational highlights)
+
+Key models (see `apps/app/prisma/schema.prisma`):
+
+- `User` — profile, auth, gamification state
+- `Concept`, `ConceptPrerequisite` — mirrored relational representation of graph concepts for efficient joins and analytics
+- `ConceptAttempt` — audit record for each student attempt (time, hints used, correctness, delta)
+- `MasteryRecord` — latest per-user per-concept mastery snapshot (total/correct/confidence weight)
+- `RubricEvaluation` — stored evaluation JSON + computed weighted_total
+
+Design notes:
+
+- Keep audit/audit-like tables partitioned by time (monthly) if write volume grows.
+- Use JSONB for LLM prompts/responses and rubric detail to retain fidelity.
+
+---
+
+## Neo4j Knowledge Graph
+
+Purpose: fast neighborhood/prerequisite queries, shortest-path recommendations, weak-node detection and curriculum planning.
+
+Model:
+
+- `(:Concept { name, domain, difficulty, createdAt })`
+- `(pre)-[:PREREQUISITE_OF]->(concept)`
+- `(user)-[r:MASTERED_BY {score, updatedAt}]->(concept)`
+
+Best practices:
+
+- Keep node properties compact — store bulk metadata in Postgres and only the traversal-critical properties in Neo4j.
+- Use parameterised Cypher queries and prepared statements via the official async driver.
+
+---
+
+## Consistency and Sync
+
+Pattern: Postgres is primary for app data. Neo4j is a derived store for graph queries.
+
+- Writes: application writes to Postgres first inside a transaction; then an async job (background worker or DB trigger pushing to a queue) updates Neo4j.
+- Compensating jobs reconcile Neo4j nightly for drift.
+
+---
+
+## Indexing & Query Patterns
+
+- Postgres:
+  - Index `users.email`, `concept_attempts(userId, conceptId)`, `mastery_records(userId, conceptId)`
+  - GIN indexes for JSONB fields storing rubric/LLM artifacts
+  - Time-based partitioning for `concept_attempts` to support high write throughput
+
+- Neo4j:
+  - Index `:Concept(name)` and `:User(id)`
+  - Use `shortestPath()` carefully; prefer k-hop expansions for controlled performance
+
+---
+
+## Scaling & Operational Concerns
+
+- Connection Pooling: use PgBouncer (transaction pooling) for the app pool; Prisma is compatible when using session pooling patterns.
+- Read replicas: route analytical read load (leaderboards, analytics) to read replicas.
+- Backups: daily logical backups (pg_dump) + point-in-time recovery (PITR) enabled for critical environments.
+- Neo4j: snapshot backups (hot) and scheduled consistency checks; use read replicas for heavy graph read traffic where supported.
+
+---
+
+## Security & Secrets
+
+- Store DB credentials in environment variables and secret stores (Vault, AWS Secrets Manager).
+- Rotate service credentials regularly; use short-lived tokens for cloud DBs.
+- Principle of least privilege for DB users — separate roles for schema migrations, app runtime, and analytics.
+
+---
+
+## Disaster Recovery & Backups
+
+- Postgres: daily full backups + continuous WAL archiving for PITR.
+- Neo4j: periodic snapshots + export of key nodes/relationships to CSV/JSON as secondary backup.
+
+Recovery RTO/RPO targets should be documented per environment (dev/staging/prod).
+
+---
+
+## Observability
+
+- Instrument DB queries and long-running Cypher with tracing (OpenTelemetry).
+- Export Postgres and Neo4j metrics to Prometheus; dashboards in Grafana for query latency, replication lag, connection counts.
+
+---
+
+## Operational Playbooks (short)
+
+- **Add a new concept**: write to Postgres `Concept` and enqueue graph sync job → sync creates Neo4j node → run consistency check.
+- **Mastery update**: write attempt to `ConceptAttempt`, run mastery recomputation job that writes `MasteryRecord` and updates Neo4j `MASTERED_BY` edge.
+- **Repair Neo4j drift**: run nightly reconciliation job comparing Postgres `Concept`/`MasteryRecord` to graph and fix missing edges/nodes.
+
+---
+
+## Future Improvements
+
+- Event sourcing for all student interactions (append-only stream) to allow full replay and reproducible offline evaluations.
+- Materialised views for leaderboards with incremental refresh.
+- Explore partitioned graphs / subgraph materialisation for very large curricula.
+
+---
+
+## Quick Start (dev)
+
+1. Ensure `.env` contains `DATABASE_URL` and `NEO4J_URI`.
+2. Start services: `docker-compose up --build`
+3. Run Prisma migrations:
+
+```bash
+cd apps/app
+npx prisma migrate dev --name novyra_init
 ```
 
----
-
-## System Design
-
-### Architecture Overview
-The system follows a **microservices-inspired monorepo architecture** with the following components:
-
-1. **Frontend**:
-   - Built with **Next.js**.
-   - Provides a responsive and modern user interface.
-   - Communicates with the backend via REST APIs.
-
-2. **Backend**:
-   - Built with **FastAPI**.
-   - Handles business logic, authentication, and API endpoints.
-   - Integrates with the database via Prisma ORM.
-
-3. **AI Services**:
-   - Located in the `apps/ai-agent` directory.
-   - Provides AI-powered features like document analysis and contextual Q&A.
-   - Uses **LangChain** for LLM orchestration and **Pinecone** for vector search.
-
-### Key Features
-
-#### Authentication
-- **JWT-Based Authentication**: Secure token-based authentication for users.
-- **OAuth Integration**: Supports third-party login providers (e.g., Google, GitHub).
-
-#### Gamification
-- Tracks user progress with XP, levels, and achievements.
-- Implements a streak system for daily engagement.
-- Leaderboards for competitive ranking.
-
-#### Community Features
-- Users can join or create subject-specific communities.
-- Posts and answers are validated by community voting.
-- Mentorship programs connect experienced users with learners.
-
-#### AI Integration
-- **Document Analysis**: Users can upload files for AI-powered Q&A.
-- **Contextual Answers**: AI provides relevant insights based on user queries.
-- **Multi-modal Support**: Handles text, code, and mathematical expressions.
-
-### Deployment
-- **Frontend**: Deployed on **Vercel**.
-- **Backend**: Deployed on **Render**.
-- **AI Services**: Deployed as a separate service.
-
-### Scalability
-- **Horizontal Scaling**: Backend and AI services can scale independently.
-- **Caching**: Utilizes in-memory caching for frequently accessed data.
-- **Load Balancing**: Distributes traffic across multiple instances.
+4. Start app locally (AI Engine on `:8000`, frontend on `:5000`).
 
 ---
 
-## Future Enhancements
-1. **Database Optimization**:
-   - Add indexing for frequently queried fields.
-   - Optimize Prisma queries for performance.
-
-2. **AI Enhancements**:
-   - Expand support for additional file formats.
-   - Improve contextual understanding for complex queries.
-
-3. **Real-Time Features**:
-   - Implement WebSocket-based real-time notifications.
-   - Add live collaboration tools for communities.
-
-4. **Monitoring and Analytics**:
-   - Integrate tools like Prometheus and Grafana for system monitoring.
-   - Add user analytics for better insights into platform usage.
+Contact the platform ops team for environment-specific RTO/RPO and scaling budgets.
