@@ -44,9 +44,30 @@ async def lifespan(app: FastAPI):
     logger.info("    Neo4j : %s", settings.NEO4J_URI)
     logger.info("=" * 70)
 
+    # Connect to PostgreSQL via Prisma
+    try:
+        from app.core.database import connect_db
+        await connect_db()
+        logger.info("✅ PostgreSQL connected via Prisma")
+    except Exception as exc:
+        logger.error("❌ Failed to connect to PostgreSQL: %s", exc)
+        logger.warning("Application will continue but database features will fail")
+
+    # Initialize event bus and register handlers
+    try:
+        from app.services.events.event_bus import get_event_bus
+        # Import handlers to trigger @event_handler registration
+        import app.services.events.event_handlers  # noqa: F401
+        
+        event_bus = get_event_bus()
+        handler_count = len(event_bus._handlers)
+        logger.info("✅ Event bus initialized with %d handlers", handler_count)
+    except Exception as exc:
+        logger.error("❌ Failed to initialize event bus: %s", exc)
+
     neo4j_ok = await neo4j_ping()
     if neo4j_ok:
-        logger.info("Neo4j connection OK")
+        logger.info("✅ Neo4j connection OK")
         
         # Auto-seed knowledge graph on first startup
         concept_count = await count_concepts()
@@ -69,11 +90,27 @@ async def lifespan(app: FastAPI):
         else:
             logger.info("Knowledge graph ready with %d concepts", concept_count)
     else:
-        logger.warning("Neo4j unreachable — graph features degraded")
+        logger.warning("⚠️  Neo4j unreachable — graph features degraded")
+
+    logger.info("=" * 70)
+    logger.info("🚀 NOVYRA AI Engine ready!")
+    logger.info("=" * 70)
 
     yield  # app runs here
 
+    # Shutdown
+    logger.info("Shutting down NOVYRA AI Engine...")
+    
     await close_driver()
+    logger.info("Neo4j driver closed")
+    
+    try:
+        from app.core.database import disconnect_db
+        await disconnect_db()
+        logger.info("PostgreSQL disconnected")
+    except Exception as exc:
+        logger.error("Error disconnecting from PostgreSQL: %s", exc)
+    
     logger.info("NOVYRA AI Engine stopped.")
 
 
@@ -103,6 +140,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Rate Limiting (protect against abuse)
+try:
+    from app.middleware.rate_limit import RateLimitMiddleware
+    app.add_middleware(RateLimitMiddleware)
+    logger.info("✅ Rate limiting middleware enabled")
+except Exception as exc:
+    logger.warning("⚠️  Rate limiting failed to initialize: %s", exc)
+
 # ---------------------------------------------------------------------------
 # Route registry helper
 # ---------------------------------------------------------------------------
@@ -123,10 +168,11 @@ def _mount(tag: str, module_path: str, prefix: str):
 # ---------------------------------------------------------------------------
 # NOVYRA Core Engines  (new)
 # ---------------------------------------------------------------------------
-_mount("reasoning",  "app.api.routes.reasoning",  "/reasoning")
-_mount("evaluation", "app.api.routes.evaluation",  "/evaluation")
-_mount("mastery",    "app.api.routes.mastery",     "/mastery")
-_mount("graph",      "app.api.routes.graph",       "/graph")
+_mount("reasoning",      "app.api.routes.reasoning",      "/reasoning")
+_mount("evaluation",     "app.api.routes.evaluation",     "/evaluation")
+_mount("mastery",        "app.api.routes.mastery",        "/mastery")
+_mount("graph",          "app.api.routes.graph",          "/graph")
+_mount("gamification",   "app.api.routes.gamification",   "/gamification")
 
 # ---------------------------------------------------------------------------
 # Demo & Visualization Routes (for hackathon presentation)
@@ -151,12 +197,35 @@ app.include_router(api_router, prefix="/api")
 @app.get("/health", tags=["ops"])
 async def health():
     neo4j_ok = await neo4j_ping()
+    
+    # Check PostgreSQL
+    postgres_ok = False
+    try:
+        from app.core.database import health_check
+        postgres_ok = await health_check()
+    except Exception:
+        pass
+    
+    # Check event bus
+    event_bus_ok = False
+    handler_count = 0
+    try:
+        from app.services.events.event_bus import get_event_bus
+        bus = get_event_bus()
+        event_bus_ok = True
+        handler_count = sum(len(handlers) for handlers in bus._handlers.values())
+    except Exception:
+        pass
+    
     return {
-        "status": "healthy",
+        "status": "healthy" if (neo4j_ok and postgres_ok) else "degraded",
         "version": "2.0.0",
         "llm_model": settings.LLM_MODEL,
         "google_api_key_set": bool(settings.GOOGLE_API_KEY),
         "neo4j_connected": neo4j_ok,
+        "postgres_connected": postgres_ok,
+        "event_bus_active": event_bus_ok,
+        "event_handlers": handler_count,
     }
 
 

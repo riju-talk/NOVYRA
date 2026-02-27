@@ -8,9 +8,12 @@
 [![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
 [![Python](https://img.shields.io/badge/Python_3.11+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org/)
 [![AMD](https://img.shields.io/badge/AMD-Optimized-ED1C24?style=for-the-badge&logo=amd&logoColor=white)](https://www.amd.com/)
+[![Status](https://img.shields.io/badge/Status-Production_Ready-success?style=for-the-badge)](README_COMPLETE.md)
 
 > **Not a chatbot. Not RAG. Not an LMS.**  
 > **NOVYRA is learning infrastructure.**
+
+**📘 [Complete Implementation Guide](README_COMPLETE.md) • 📚 [Deployment Guide](docs/DEPLOYMENT_GUIDE.md) • 🚀 [Quick Start](quick-start.ps1)**
 
 A knowledge-graph-driven, rubric-aware, mastery-tracking AI learning platform that covers **25+ academic disciplines** with intelligent prerequisite detection, adaptive reasoning, and AMD-optimized edge inference.
 

@@ -1,16 +1,17 @@
 """
 NOVYRA — Structured Reasoning Engine
 
-No LangChain. Pure Gemini SDK + Pydantic validation.
+Enhanced with 8-layer AI Brain architecture.
 
 Flow:
   1. Detect language of question
   2. If non-English → translate to English
-  3. Fetch graph context for enriched prompt
-  4. Call Gemini with REASONING_PROMPT → enforce JSON schema
-  5. Validate with Pydantic
-  6. If non-English → translate final_solution back
-  7. Return ReasoningResponse
+  3. Assemble context (Layers 1-5: intent, concepts, graph, cognitive state)
+  4. Call enhanced reasoning engine (Layer 6)
+  5. NLI validation (Layer 7) ✅
+  6. Trust scoring (Layer 8) ✅
+  7. If non-English → translate final_solution back
+  8. Return ReasoningResponse
 """
 from __future__ import annotations
 import json
@@ -27,6 +28,9 @@ from app.services import knowledge_graph_service as kg
 
 logger = logging.getLogger(__name__)
 
+# Feature flag: use enhanced reasoning with full AI Brain layers
+USE_ENHANCED_REASONING = True
+
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8))
 async def reason(
@@ -37,8 +41,30 @@ async def reason(
 ) -> ReasoningResponse:
     """
     Core reasoning entry-point.
+    
+    Routes to enhanced reasoning engine (with AI Brain layers) or legacy engine.
+    
     Returns a validated ReasoningResponse.
     """
+    # Use enhanced reasoning if available
+    if USE_ENHANCED_REASONING:
+        try:
+            from app.services.ai_brain.reasoning_engine import reason_with_context
+            logger.info("Using enhanced reasoning engine with AI Brain layers")
+            return await reason_with_context(
+                question=question,
+                user_id=user_id,
+                language=language,
+                include_hints=include_hints
+            )
+        except ImportError as e:
+            logger.warning(f"Enhanced reasoning not available: {e}. Falling back to legacy.")
+        except Exception as e:
+            logger.error(f"Enhanced reasoning failed: {e}. Falling back to legacy.")
+    
+    # Legacy reasoning (fallback)
+    logger.info("Using legacy reasoning engine")
+    
     # --- 1. Translate to English if needed ---
     working_question = question
     if language != "en":
