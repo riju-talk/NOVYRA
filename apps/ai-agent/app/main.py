@@ -29,7 +29,11 @@ validate_settings()
 # ---------------------------------------------------------------------------
 # Lifespan (startup / shutdown)
 # ---------------------------------------------------------------------------
-from app.services.knowledge_graph_service import ping as neo4j_ping, close_driver  # noqa: E402
+from app.services.knowledge_graph_service import (
+    ping as neo4j_ping,
+    close_driver,
+    count_concepts,
+)  # noqa: E402
 
 
 @asynccontextmanager
@@ -43,6 +47,27 @@ async def lifespan(app: FastAPI):
     neo4j_ok = await neo4j_ping()
     if neo4j_ok:
         logger.info("Neo4j connection OK")
+        
+        # Auto-seed knowledge graph on first startup
+        concept_count = await count_concepts()
+        if concept_count < 10:
+            logger.warning(
+                "Knowledge graph has only %d concepts - auto-seeding with universal concepts...",
+                concept_count
+            )
+            try:
+                from app.services.concept_seeder import seed_knowledge_graph
+                result = await seed_knowledge_graph()
+                logger.info(
+                    "✅ Knowledge graph seeded: %d concepts, %d relationships",
+                    result["concepts_added"],
+                    result["relationships_created"]
+                )
+            except Exception as exc:
+                logger.error("Failed to auto-seed knowledge graph: %s", exc)
+                logger.info("You can manually seed via: POST /api/demo/seed-knowledge-graph")
+        else:
+            logger.info("Knowledge graph ready with %d concepts", concept_count)
     else:
         logger.warning("Neo4j unreachable — graph features degraded")
 
@@ -104,6 +129,11 @@ _mount("mastery",    "app.api.routes.mastery",     "/mastery")
 _mount("graph",      "app.api.routes.graph",       "/graph")
 
 # ---------------------------------------------------------------------------
+# Demo & Visualization Routes (for hackathon presentation)
+# ---------------------------------------------------------------------------
+_mount("demo",       "app.api.routes.demo",        "/demo")
+
+# ---------------------------------------------------------------------------
 # Legacy / existing routes  (keep working for frontend)
 # ---------------------------------------------------------------------------
 _mount("qa",         "app.api.routes.qa",          "/qa")
@@ -142,6 +172,14 @@ async def root():
             "evaluation": "/api/evaluation/evaluate",
             "mastery":    "/api/mastery/attempt",
             "graph":      "/api/graph/concept",
+        },
+        "demo": {
+            "seed":       "/api/demo/seed-knowledge-graph",
+            "concepts":   "/api/demo/concepts",
+            "metrics":    "/api/demo/metrics/learning/{user_id}",
+            "comparison": "/api/demo/metrics/comparison",
+            "edge_inference": "/api/demo/edge-inference",
+            "visualization": "/api/demo/visualization/{user_id}",
         },
         "legacy": {
             "qa":         "/api/qa",

@@ -39,6 +39,7 @@ export function Header() {
   }, [session])
 
   const navigation = [
+    { name: "Learn", href: "/learn" },
     { name: "Community", href: "/communities" },
     { name: "Ask", href: "/ask" },
     { name: "AI Agent", href: "/ai-agent" },

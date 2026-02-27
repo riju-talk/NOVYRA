@@ -212,3 +212,15 @@ async def ping() -> bool:
         return True
     except ServiceUnavailable:
         return False
+
+
+async def count_concepts() -> int:
+    """Return the number of Concept nodes in the graph."""
+    try:
+        driver = await get_driver()
+        async with driver.session() as session:
+            result = await session.run("MATCH (c:Concept) RETURN count(c) as count")
+            record = await result.single()
+            return record["count"] if record else 0
+    except Exception:
+        return 0

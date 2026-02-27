@@ -6,6 +6,7 @@ import { ChatAgent } from "@/components/ai-agent/chat-agent"
 import { MindMapAgent } from "@/components/ai-agent/mindmap-agent"
 import { AssessmentsAgent } from "@/components/ai-agent/assessments-agent"
 import { ChartsAgent } from "@/components/ai-agent/charts-agent"
+import { WIPSection } from "@/components/wip-feature"
 import { Sparkles } from "lucide-react"
 
 export default function AIAgentPage() {
@@ -22,11 +23,48 @@ export default function AIAgentPage() {
       >
         <div className="h-full w-full">
           {activeTab === "qa" && <ChatAgent contextDoc={selectedDoc} />}
-          {activeTab === "mindmap" && <MindMapAgent contextDoc={selectedDoc} />}
-          {(activeTab === "assessments" || activeTab === "flashcards") && (
-            <AssessmentsAgent contextDoc={selectedDoc} />
+          {activeTab === "mindmap" && (
+            <WIPSection
+              phase={2}
+              estimatedCompletion="February 2025"
+              features={[
+                "Interactive concept maps with Neo4j visualization",
+                "Real-time prerequisite path highlighting",
+                "D3.js force-directed graph",
+                "Concept clustering by domain",
+              ]}
+            >
+              <MindMapAgent contextDoc={selectedDoc} />
+            </WIPSection>
           )}
-          {activeTab === "charts" && <ChartsAgent contextDoc={selectedDoc} />}
+          {(activeTab === "assessments" || activeTab === "flashcards") && (
+            <WIPSection
+              phase={2}
+              estimatedCompletion="February 2025"
+              features={[
+                "Spaced repetition flashcards",
+                "Auto-generated quizzes from documents",
+                "Progressive difficulty adjustment",
+                "Rubric-based evaluation integration",
+              ]}
+            >
+              <AssessmentsAgent contextDoc={selectedDoc} />
+            </WIPSection>
+          )}
+          {activeTab === "charts" && (
+            <WIPSection
+              phase={2}
+              estimatedCompletion="March 2025"
+              features={[
+                "Learning analytics dashboard",
+                "Mastery progression over time",
+                "Concept heatmaps by domain",
+                "Peer comparison insights (anonymized)",
+              ]}
+            >
+              <ChartsAgent contextDoc={selectedDoc} />
+            </WIPSection>
+          )}
         </div>
       </NotebookLayout>
     </div>
