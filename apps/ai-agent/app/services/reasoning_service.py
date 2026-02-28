@@ -18,7 +18,7 @@ import json
 import logging
 from typing import Optional
 
-from tenacity import retry, stop_after_attempt, wait_exponential
+from google.genai.errors import ClientError
 
 from app.core.llm import generate_json
 from app.core.prompts import REASONING_SYSTEM, REASONING_PROMPT
@@ -32,7 +32,6 @@ logger = logging.getLogger(__name__)
 USE_ENHANCED_REASONING = True
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(min=2, max=8))
 async def reason(
     question: str,
     user_id: Optional[str] = None,
@@ -59,6 +58,8 @@ async def reason(
             )
         except ImportError as e:
             logger.warning(f"Enhanced reasoning not available: {e}. Falling back to legacy.")
+        except ClientError:
+            raise  # quota / auth errors — don't waste another call on legacy
         except Exception as e:
             logger.error(f"Enhanced reasoning failed: {e}. Falling back to legacy.")
     

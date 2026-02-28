@@ -2,11 +2,13 @@
 NOVYRA — Knowledge Graph API Routes
 POST /api/graph/concept        → add concept node
 POST /api/graph/prerequisite   → link prerequisite
+GET  /api/graph/nodes          → all nodes + edges (LiveKnowledgeGraph feed)
 GET  /api/graph/context/{concept}        → fetch concept context
 GET  /api/graph/weak/{user_id}           → get user weak nodes
 GET  /api/graph/path/{user_id}/{concept} → recommended learning path
 """
 from fastapi import APIRouter, HTTPException
+from typing import Optional
 import logging
 
 from app.schemas.graph import (
@@ -48,6 +50,19 @@ async def add_prerequisite(request: AddPrerequisiteRequest) -> dict:
     except Exception as exc:
         logger.exception("add_prerequisite failed: %s", exc)
         raise HTTPException(status_code=500, detail="Graph write error")
+
+
+@router.get("/nodes", summary="All concept nodes + prerequisite edges (LiveKnowledgeGraph feed)")
+async def get_all_nodes(user_id: Optional[str] = None) -> dict:
+    """
+    Returns every Concept node with mastery percentage (0-100) and all
+    PREREQUISITE_OF edges.  Optionally scoped to a user's mastery scores.
+    """
+    try:
+        return await kg.get_all_nodes(user_id=user_id)
+    except Exception as exc:
+        logger.exception("get_all_nodes failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Graph read error")
 
 
 @router.get("/context/{concept}", response_model=ConceptContextResponse, summary="Get concept graph context")

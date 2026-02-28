@@ -224,3 +224,79 @@ async def count_concepts() -> int:
             return record["count"] if record else 0
     except Exception:
         return 0
+
+
+async def get_all_nodes(user_id: Optional[str] = None) -> dict:
+    """
+    Return all Concept nodes with optional per-user mastery scores,
+    plus all PREREQUISITE_OF edges.
+
+    Used by the LiveKnowledgeGraph frontend component.
+
+    Returns:
+        {
+          "nodes": [{"id": str, "label": str, "mastery": float (0-100),
+                     "domain": str, "difficulty": int}],
+          "edges": [{"from": str, "to": str, "strength": float}]
+        }
+    """
+    driver = await get_driver()
+    nodes: list = []
+    edges: list = []
+
+    async with driver.session() as session:
+        # Fetch all concept nodes with optional mastery scores
+        if user_id:
+            result = await session.run(
+                """
+                MATCH (c:Concept)
+                OPTIONAL MATCH (u:User {id: $user_id})-[r:MASTERED_BY]->(c)
+                RETURN c.name AS id,
+                       c.name AS label,
+                       COALESCE(r.score, 0.0) AS mastery_score,
+                       COALESCE(c.domain, '') AS domain,
+                       COALESCE(c.difficulty, 1) AS difficulty
+                ORDER BY c.name
+                """,
+                user_id=user_id,
+            )
+        else:
+            result = await session.run(
+                """
+                MATCH (c:Concept)
+                RETURN c.name AS id,
+                       c.name AS label,
+                       0.0 AS mastery_score,
+                       COALESCE(c.domain, '') AS domain,
+                       COALESCE(c.difficulty, 1) AS difficulty
+                ORDER BY c.name
+                """
+            )
+
+        records = await result.data()
+        for r in records:
+            nodes.append({
+                "id": r["id"],
+                "label": r["label"],
+                "mastery": round(float(r["mastery_score"]) * 100, 1),  # 0-100 scale
+                "domain": r["domain"],
+                "difficulty": r["difficulty"],
+            })
+
+        # Fetch all PREREQUISITE_OF edges
+        edge_result = await session.run(
+            """
+            MATCH (pre:Concept)-[rel:PREREQUISITE_OF]->(con:Concept)
+            RETURN pre.name AS from_node, con.name AS to_node,
+                   COALESCE(rel.strength, 1.0) AS strength
+            """
+        )
+        edge_records = await edge_result.data()
+        for er in edge_records:
+            edges.append({
+                "from": er["from_node"],
+                "to": er["to_node"],
+                "strength": float(er["strength"]),
+            })
+
+    return {"nodes": nodes, "edges": edges}

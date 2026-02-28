@@ -175,17 +175,11 @@ _mount("graph",          "app.api.routes.graph",          "/graph")
 _mount("gamification",   "app.api.routes.gamification",   "/gamification")
 
 # ---------------------------------------------------------------------------
-# Demo & Visualization Routes (for hackathon presentation)
-# ---------------------------------------------------------------------------
-_mount("demo",       "app.api.routes.demo",        "/demo")
-
-# ---------------------------------------------------------------------------
 # Legacy / existing routes  (keep working for frontend)
 # ---------------------------------------------------------------------------
 _mount("qa",         "app.api.routes.qa",          "/qa")
 _mount("documents",  "app.api.routes.documents",   "/documents")
 _mount("quiz",       "app.api.routes.quiz",        "/quiz")
-_mount("flashcards", "app.api.routes.flashcards",  "/flashcards")
 _mount("mindmap",    "app.api.routes.mindmap",     "/mindmap")
 
 app.include_router(api_router, prefix="/api")
@@ -242,19 +236,10 @@ async def root():
             "mastery":    "/api/mastery/attempt",
             "graph":      "/api/graph/concept",
         },
-        "demo": {
-            "seed":       "/api/demo/seed-knowledge-graph",
-            "concepts":   "/api/demo/concepts",
-            "metrics":    "/api/demo/metrics/learning/{user_id}",
-            "comparison": "/api/demo/metrics/comparison",
-            "edge_inference": "/api/demo/edge-inference",
-            "visualization": "/api/demo/visualization/{user_id}",
-        },
         "legacy": {
             "qa":         "/api/qa",
             "documents":  "/api/documents",
             "quiz":       "/api/quiz",
-            "flashcards": "/api/flashcards",
             "mindmap":    "/api/mindmap",
         },
     }

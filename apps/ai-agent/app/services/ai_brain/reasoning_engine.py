@@ -124,13 +124,31 @@ async def reason_with_context(
     # Call LLM
     logger.info("Calling LLM with enhanced context...")
     raw = await generate_json(prompt, system_prompt=ENHANCED_REASONING_SYSTEM)
+
+    # Extract cognitive trace fields before they get discarded by schema mapping
+    _intent_detected: str = str(raw.get("intent_detected") or "Learning")
+    _difficulty_level: int = int(raw.get("difficulty_level") or 5)
+
+    # Map enhanced AI Brain output fields → ReasoningResponse schema fields
+    # The enhanced prompt returns: primary_concept, reasoning_steps, confidence, intent_detected, etc.
+    # But ReasoningResponse expects: concept, stepwise_reasoning, confidence_score
+    mapped = {
+        "concept": raw.get("primary_concept") or raw.get("concept") or "Unknown",
+        "prerequisites": raw.get("prerequisites", []),
+        "stepwise_reasoning": raw.get("reasoning_steps") or raw.get("stepwise_reasoning", []),
+        "hint_ladder": raw.get("hint_ladder", []),
+        "final_solution": raw.get("final_solution", ""),
+        "confidence_score": float(raw.get("confidence") or raw.get("confidence_score") or 0.8),
+        "related_concepts": raw.get("related_concepts", []),
+        "language": language,
+    }
     
     # Strip hints if not requested
     if not include_hints or not context.should_provide_hints:
-        raw["hint_ladder"] = []
+        mapped["hint_ladder"] = []
     
     # Validate and create response
-    response = ReasoningResponse(**raw)
+    response = ReasoningResponse(**mapped)
     
     # Set language
     response.language = language
@@ -147,14 +165,22 @@ async def reason_with_context(
     try:
         from app.services.ai_brain.nli_validator import validate_response, emit_nli_event
         
-        nli_context = f"Concepts: {', '.join([c.name for c in context.concepts])}"
+        # Build NLI context from assembled context (use primary_concept, not context.concepts)
+        concept_names = []
+        if context.primary_concept:
+            concept_names.append(context.primary_concept.concept_name)
+        if context.graph_context and context.graph_context.related_concepts:
+            concept_names.extend([c.get("name", "") for c in context.graph_context.related_concepts[:3]])
+        nli_context = f"Concepts: {', '.join(concept_names)}" if concept_names else "General CS/Math context"
         nli_report = await validate_response(response.final_solution, nli_context)
         
         # Store NLI results in response metadata
         response.metadata = {
             "nli_verdict": nli_report.overall_verdict.value,
             "nli_confidence": nli_report.overall_confidence,
-            "nli_flags": nli_report.flags_count
+            "nli_flags": nli_report.flags_count,
+            "intent_detected": _intent_detected,
+            "difficulty_level": _difficulty_level,
         }
         
         # Emit NLI event for trust score updates
@@ -163,14 +189,18 @@ async def reason_with_context(
         
         # Adjust response confidence based on NLI
         if nli_report.overall_verdict.value == "FLAG":
-            response.confidence *= 0.5  # Penalize flagged responses
+            response.confidence_score = max(0.0, response.confidence_score * 0.5)  # Penalize flagged responses
             logger.warning(f"NLI flagged response with {nli_report.flags_count} flags")
         
     except Exception as e:
         logger.error(f"NLI validation failed: {e}")
-        response.metadata = {"nli_error": str(e)}
+        response.metadata = {
+            "nli_error": str(e),
+            "intent_detected": _intent_detected,
+            "difficulty_level": _difficulty_level,
+        }
     
-    logger.info(f"Enhanced reasoning complete: confidence={response.confidence:.2f}")
+    logger.info(f"Enhanced reasoning complete: confidence={response.confidence_score:.2f}")
     
     return response
 

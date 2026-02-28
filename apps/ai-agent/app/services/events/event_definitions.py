@@ -34,6 +34,7 @@ class EventType(str, Enum):
     
     # AI Events
     AI_REASONING_COMPLETED = "AI_REASONING_COMPLETED"
+    NLI_CHECKED = "NLI_CHECKED"          # Every NLI validation run
     NLI_FLAG_RAISED = "NLI_FLAG_RAISED"
     FACT_CHECK_PASSED = "FACT_CHECK_PASSED"
     FACT_CHECK_FAILED = "FACT_CHECK_FAILED"
