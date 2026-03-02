@@ -47,8 +47,7 @@ RATE_LIMITS: Dict[str, RateLimitConfig] = {
     # Voting
     "/api/votes": RateLimitConfig(30, 60, "user"),
     
-    # Gamification
-    "/api/gamification": RateLimitConfig(50, 60, "user"),
+    
     
     # Search
     "/api/search": RateLimitConfig(30, 60, "user"),

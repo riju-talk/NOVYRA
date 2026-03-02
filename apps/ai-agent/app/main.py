@@ -13,11 +13,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(name)s | %(levelname)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
+from app.core.logging_config import setup_logging, get_logger
+setup_logging()
+logger = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
 # Config
@@ -37,7 +35,7 @@ from app.services.knowledge_graph_service import (
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(fastapi_app: FastAPI):
     logger.info("=" * 70)
     logger.info("NOVYRA AI Engine starting on port %s", settings.PORT)
     logger.info("    LLM   : %s", settings.LLM_MODEL)
@@ -140,6 +138,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Global Error & Logging
+from app.middleware.error_handler import ErrorHandlerMiddleware
+app.add_middleware(ErrorHandlerMiddleware)
+
 # Rate Limiting (protect against abuse)
 try:
     from app.middleware.rate_limit import RateLimitMiddleware
@@ -172,7 +174,8 @@ _mount("reasoning",      "app.api.routes.reasoning",      "/reasoning")
 _mount("evaluation",     "app.api.routes.evaluation",     "/evaluation")
 _mount("mastery",        "app.api.routes.mastery",        "/mastery")
 _mount("graph",          "app.api.routes.graph",          "/graph")
-_mount("gamification",   "app.api.routes.gamification",   "/gamification")
+# Gamification is handled exclusively by Next.js
+# _mount("gamification",   "app.api.routes.gamification",   "/gamification")
 
 # ---------------------------------------------------------------------------
 # Legacy / existing routes  (keep working for frontend)

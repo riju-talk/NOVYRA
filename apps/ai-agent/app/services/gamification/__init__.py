@@ -1,1 +1,0 @@
-"""NOVYRA Gamification Services"""

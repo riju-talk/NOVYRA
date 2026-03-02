@@ -1,7 +1,7 @@
 """
 NOVYRA Event System - Core Event Definitions
 
-All system events that trigger gamification, trust updates, and logging.
+All system events that trigger trust updates, mastery changes, and logging.
 """
 from enum import Enum
 from dataclasses import dataclass, field
@@ -39,14 +39,7 @@ class EventType(str, Enum):
     FACT_CHECK_PASSED = "FACT_CHECK_PASSED"
     FACT_CHECK_FAILED = "FACT_CHECK_FAILED"
     
-    # Gamification Events
-    XP_AWARDED = "XP_AWARDED"
-    ACHIEVEMENT_UNLOCKED = "ACHIEVEMENT_UNLOCKED"
-    ACHIEVEMENT_PROGRESS = "ACHIEVEMENT_PROGRESS"
-    REPUTATION_CHANGED = "REPUTATION_CHANGED"
-    STREAK_UPDATED = "STREAK_UPDATED"
-    STREAK_MILESTONE = "STREAK_MILESTONE"
-    LEVEL_UP = "LEVEL_UP"
+    
     
     # Trust & Abuse Events
     TRUST_SCORE_UPDATED = "TRUST_SCORE_UPDATED"
@@ -147,48 +140,7 @@ class MasteryUpdatedEvent(Event):
         )
 
 
-@dataclass
-class XPAwardedEvent(Event):
-    """Emitted when XP is awarded to a user."""
-    def __init__(
-        self,
-        user_id: str,
-        xp_amount: int,
-        reason: str,
-        source_event: str,
-        multipliers: Optional[Dict[str, float]] = None
-    ):
-        super().__init__(
-            event_type=EventType.XP_AWARDED,
-            user_id=user_id,
-            metadata={
-                "xp_amount": xp_amount,
-                "reason": reason,
-                "source_event": source_event,
-                "multipliers": multipliers or {}
-            }
-        )
 
-
-@dataclass
-class AchievementUnlockedEvent(Event):
-    """Emitted when a user unlocks an achievement."""
-    def __init__(
-        self,
-        user_id: str,
-        achievement_id: str,
-        achievement_name: str,
-        xp_reward: int
-    ):
-        super().__init__(
-            event_type=EventType.ACHIEVEMENT_UNLOCKED,
-            user_id=user_id,
-            metadata={
-                "achievement_id": achievement_id,
-                "achievement_name": achievement_name,
-                "xp_reward": xp_reward
-            }
-        )
 
 
 @dataclass
@@ -238,25 +190,7 @@ class AbuseFlagCreatedEvent(Event):
         )
 
 
-@dataclass
-class StreakUpdatedEvent(Event):
-    """Emitted when a user's streak is updated."""
-    def __init__(
-        self,
-        user_id: str,
-        current_streak: int,
-        longest_streak: int,
-        is_milestone: bool = False
-    ):
-        super().__init__(
-            event_type=EventType.STREAK_UPDATED,
-            user_id=user_id,
-            metadata={
-                "current_streak": current_streak,
-                "longest_streak": longest_streak,
-                "is_milestone": is_milestone
-            }
-        )
+
 
 
 # Event Factory for dynamic event creation
